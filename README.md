@@ -28,7 +28,7 @@ The page opens at <http://127.0.0.1:8765>.
 
 ## Data storage
 
-All data lives under `~/.taskweb/`:
+All data lives under `~/.taskweb/` by default. Use `--data-dir` (or `.\start-web.ps1 -DataDir <folder>`) to choose a different folder; file names are fixed:
 
 - `tasks.json` — the task list (open and completed tasks)
 - `active.json` — start timestamps of currently running tasks

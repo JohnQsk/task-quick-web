@@ -388,12 +388,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global STORE_DIR, TASKS_FILE, TIMELOG, ACTIVE_FILE
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--data-dir",
+        default=str(Path.home() / ".taskweb"),
+        help="folder for tasks.json, active.json and timelog.jsonl "
+        "(file names are fixed)",
+    )
     args = parser.parse_args()
+    STORE_DIR = Path(args.data_dir).expanduser()
+    TASKS_FILE = STORE_DIR / "tasks.json"
+    TIMELOG = STORE_DIR / "timelog.jsonl"
+    ACTIVE_FILE = STORE_DIR / "active.json"
+    STORE_DIR.mkdir(parents=True, exist_ok=True)
     server = HTTPServer((args.host, args.port), Handler)
-    print(f"Task web: http://{args.host}:{args.port}", flush=True)
+    print(f"Task web: http://{args.host}:{args.port} (data: {STORE_DIR})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
