@@ -1,24 +1,22 @@
 import argparse
 import json
 import re
-import subprocess
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-DSTASK_DIR = Path.home() / ".dstask"
-TRACK_DIR = Path.home() / ".dstask-web"
-TIMELOG = TRACK_DIR / "timelog.jsonl"
-ACTIVE_FILE = TRACK_DIR / "active.json"
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+STORE_DIR = Path.home() / ".taskweb"
+TASKS_FILE = STORE_DIR / "tasks.json"
+TIMELOG = STORE_DIR / "timelog.jsonl"
+ACTIVE_FILE = STORE_DIR / "active.json"
 
 PAGE = b'''<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dstask</title>
+<title>Tasks</title>
 <style>
 :root { color-scheme: light; font-family: system-ui, sans-serif; }
 body { max-width: 860px; margin: 40px auto; padding: 0 16px; background: #f5f6f8; color: #20242a; }
@@ -40,7 +38,7 @@ button:disabled { opacity: .5; cursor: wait; }
 </style>
 </head>
 <body>
-<h1>dstask</h1>
+<h1>Tasks</h1>
 <div id="summary">Loading...</div>
 <div id="focus"></div>
 <div id="error" role="alert"></div>
@@ -161,69 +159,48 @@ setInterval(loadTasks, 15000);
 </html>'''
 
 
-def run_dstask(*args):
-    try:
-        return subprocess.run(
-            ["dstask", *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except FileNotFoundError:
-        raise RuntimeError("dstask not found in PATH")
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("dstask command timed out")
-
-
-def clean_output(result):
-    return ANSI_RE.sub("", result.stdout + result.stderr).strip()
-
-
-def load_tasks():
-    result = run_dstask("show-open", "--")
-    if result.returncode != 0:
-        raise RuntimeError(clean_output(result) or "Could not read tasks")
-    try:
-        return json.loads(result.stdout or "[]")
-    except json.JSONDecodeError:
-        raise RuntimeError("Could not parse dstask output")
-
-
-def find_task(uuid):
-    for task in load_tasks():
-        if task.get("uuid") == uuid:
-            return task
-    return None
-
-
-def edit_summary(task, description):
-    task_file = DSTASK_DIR / task["status"] / f"{task['uuid']}.yml"
-    if not task_file.is_file():
-        raise RuntimeError("Task file not found")
-    lines = task_file.read_text(encoding="utf-8").splitlines(keepends=True)
-    for index, line in enumerate(lines):
-        if line.startswith("summary:"):
-            newline = "\n" if line.endswith("\n") else ""
-            lines[index] = "summary: " + json.dumps(
-                description, ensure_ascii=False
-            ) + newline
-            break
-    else:
-        raise RuntimeError("Task file has no summary field")
-    task_file.write_text("".join(lines), encoding="utf-8")
-    run_dstask("git", "add", "-A")
-    commit = run_dstask("git", "commit", "-m", f"Edited task {task['id']}")
-    if commit.returncode != 0:
-        raise RuntimeError(clean_output(commit) or "Could not commit edit")
-    updated = find_task(task["uuid"])
-    if not updated or updated.get("summary") != description:
-        raise RuntimeError("Edit did not take effect")
-
-
 def now_local():
     return datetime.now().astimezone()
+
+
+def load_store():
+    try:
+        return json.loads(TASKS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"tasks": []}
+
+
+def save_store(store):
+    STORE_DIR.mkdir(exist_ok=True)
+    temp = STORE_DIR / "tasks.json.tmp"
+    temp.write_text(json.dumps(store, ensure_ascii=False, indent=1), encoding="utf-8")
+    temp.replace(TASKS_FILE)
+
+
+def public_task(task):
+    return {
+        "uuid": task["uuid"],
+        "status": "active" if task.get("start") else "pending",
+        "summary": task["description"],
+        "project": task.get("project", ""),
+        "created": task.get("created"),
+        "due": task.get("due"),
+    }
+
+
+def open_tasks():
+    return [
+        public_task(task)
+        for task in load_store()["tasks"]
+        if task.get("status") == "pending"
+    ]
+
+
+def find_task(store, task_uuid):
+    for task in store["tasks"]:
+        if task.get("uuid") == task_uuid and task.get("status") == "pending":
+            return task
+    return None
 
 
 def load_active():
@@ -234,7 +211,7 @@ def load_active():
 
 
 def save_active(active):
-    TRACK_DIR.mkdir(exist_ok=True)
+    STORE_DIR.mkdir(exist_ok=True)
     ACTIVE_FILE.write_text(
         json.dumps(active, ensure_ascii=False, indent=1), encoding="utf-8"
     )
@@ -244,36 +221,37 @@ def track_start(task):
     try:
         active = load_active()
         active[task["uuid"]] = {
-            "summary": task["summary"],
+            "summary": task["description"],
             "project": task.get("project", ""),
-            "start": now_local().isoformat(timespec="seconds"),
+            "start": task["start"],
         }
         save_active(active)
     except OSError:
         pass
 
 
-def track_stop(task):
+def track_stop(task, started_at):
     try:
         active = load_active()
         entry = active.pop(task["uuid"], None)
         save_active(active)
-        if not entry:
+        start_text = entry["start"] if entry else started_at
+        if not start_text:
             return
         end = now_local()
-        start = datetime.fromisoformat(entry["start"])
+        start = datetime.fromisoformat(start_text)
         record = {
             "uuid": task["uuid"],
-            "summary": task["summary"],
+            "summary": task["description"],
             "project": task.get("project", ""),
-            "start": entry["start"],
+            "start": start_text,
             "end": end.isoformat(timespec="seconds"),
             "seconds": max(0, round((end - start).total_seconds())),
         }
-        TRACK_DIR.mkdir(exist_ok=True)
+        STORE_DIR.mkdir(exist_ok=True)
         with TIMELOG.open("a", encoding="utf-8") as log:
             log.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except (OSError, ValueError):
+    except (OSError, ValueError, KeyError):
         pass
 
 
@@ -295,12 +273,12 @@ def focus_seconds_today(active_uuids):
     except OSError:
         pass
     now = now_local()
-    for uuid, entry in load_active().items():
-        if uuid not in active_uuids:
+    for task_uuid, entry in load_active().items():
+        if task_uuid not in active_uuids:
             continue
         try:
             start = datetime.fromisoformat(entry["start"])
-        except ValueError:
+        except (KeyError, ValueError):
             continue
         total += max(0, round((now - start).total_seconds()))
     return total
@@ -328,20 +306,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self.send_bytes(PAGE, "text/html; charset=utf-8")
         elif path == "/api/tasks":
-            try:
-                self.send_json(load_tasks())
-            except Exception as error:
-                self.send_error_json(str(error), 500)
+            self.send_json(open_tasks())
         elif path == "/api/focus":
-            try:
-                active_uuids = {
-                    task["uuid"]
-                    for task in load_tasks()
-                    if task.get("status") == "active"
-                }
-                self.send_json({"today_seconds": focus_seconds_today(active_uuids)})
-            except Exception as error:
-                self.send_error_json(str(error), 500)
+            active_uuids = {
+                task["uuid"]
+                for task in load_store()["tasks"]
+                if task.get("status") == "pending" and task.get("start")
+            }
+            self.send_json({"today_seconds": focus_seconds_today(active_uuids)})
         elif path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -360,29 +332,35 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Not found", 404)
             return
         task_uuid, action = match.groups()
+        store = load_store()
+        task = find_task(store, task_uuid.lower())
+        if not task:
+            self.send_error_json("Task not found", 404)
+            return
+        if action == "description":
+            description = self.read_description()
+            if description is None:
+                return
+            task["description"] = description
+        elif action == "start":
+            task["start"] = task.get("start") or now_local().isoformat(timespec="seconds")
+            track_start(task)
+        elif action == "stop":
+            started_at = task.get("start")
+            task["start"] = None
+            track_stop(task, started_at)
+        elif action == "done":
+            started_at = task.get("start")
+            task["start"] = None
+            task["status"] = "completed"
+            task["completed"] = now_local().isoformat(timespec="seconds")
+            track_stop(task, started_at)
         try:
-            task = find_task(task_uuid.lower())
-            if not task:
-                self.send_error_json("Task not found", 404)
-                return
-            if action == "description":
-                description = self.read_description()
-                if description is None:
-                    return
-                edit_summary(task, description)
-                self.send_json({"ok": True})
-                return
-            result = run_dstask(action, str(task["id"]), "--")
-            if result.returncode != 0:
-                self.send_error_json(clean_output(result) or "Task command failed")
-                return
-            if action == "start":
-                track_start(task)
-            else:
-                track_stop(task)
-            self.send_json({"ok": True, "message": clean_output(result)})
-        except Exception as error:
-            self.send_error_json(str(error), 500)
+            save_store(store)
+        except OSError as error:
+            self.send_error_json(f"Could not save tasks: {error}", 500)
+            return
+        self.send_json({"ok": True})
 
     def read_description(self):
         try:
@@ -415,7 +393,7 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     server = HTTPServer((args.host, args.port), Handler)
-    print(f"dstask web: http://{args.host}:{args.port}", flush=True)
+    print(f"Task web: http://{args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
