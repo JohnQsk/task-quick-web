@@ -1,12 +1,13 @@
 import argparse
 import json
 import re
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-STORE_DIR = Path.home() / ".taskweb"
+STORE_DIR = Path.home() / "workspace" / "taskweb"
 TASKS_FILE = STORE_DIR / "tasks.json"
 TIMELOG = STORE_DIR / "timelog.jsonl"
 ACTIVE_FILE = STORE_DIR / "active.json"
@@ -23,6 +24,10 @@ body { max-width: 860px; margin: 40px auto; padding: 0 16px; background: #f5f6f8
 h1 { font-size: 26px; margin-bottom: 4px; }
 #summary, #focus { color: #66707c; margin-bottom: 6px; }
 #focus { margin-bottom: 24px; }
+#add-form { display: flex; gap: 8px; margin-bottom: 20px; }
+#add-form input { padding: 10px 14px; border: 1px solid #d0d4da; border-radius: 7px; font-size: 15px; }
+#new-description { flex: 3; }
+#new-project { flex: 1; }
 .task { display: flex; align-items: center; gap: 16px; padding: 18px; margin: 10px 0; background: white; border-radius: 10px; box-shadow: 0 1px 4px #0001; }
 .details { flex: 1; min-width: 0; }
 .description { overflow-wrap: anywhere; line-height: 1.45; }
@@ -41,6 +46,11 @@ button:disabled { opacity: .5; cursor: wait; }
 <h1>Tasks</h1>
 <div id="summary">Loading...</div>
 <div id="focus"></div>
+<form id="add-form">
+<input id="new-description" placeholder="New task description" maxlength="1000" required>
+<input id="new-project" placeholder="project (optional)" maxlength="100">
+<button type="submit">Add</button>
+</form>
 <div id="error" role="alert"></div>
 <main id="tasks"></main>
 <script>
@@ -48,6 +58,9 @@ const tasksNode = document.getElementById('tasks');
 const summaryNode = document.getElementById('summary');
 const focusNode = document.getElementById('focus');
 const errorNode = document.getElementById('error');
+const addForm = document.getElementById('add-form');
+const newDescription = document.getElementById('new-description');
+const newProject = document.getElementById('new-project');
 
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -88,6 +101,26 @@ async function editTask(task, button) {
     button.disabled = false;
   }
 }
+
+addForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  errorNode.textContent = '';
+  try {
+    await request('/api/tasks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Task-Web': '1'},
+      body: JSON.stringify({
+        description: newDescription.value,
+        project: newProject.value
+      })
+    });
+    newDescription.value = '';
+    newProject.value = '';
+    await loadTasks();
+  } catch (error) {
+    errorNode.textContent = error.message;
+  }
+});
 
 async function loadFocus() {
   try {
@@ -201,6 +234,23 @@ def find_task(store, task_uuid):
         if task.get("uuid") == task_uuid and task.get("status") == "pending":
             return task
     return None
+
+
+def create_task(description, project):
+    store = load_store()
+    task = {
+        "uuid": str(uuid.uuid4()),
+        "description": description,
+        "project": project,
+        "tags": [],
+        "status": "pending",
+        "start": None,
+        "created": now_local().isoformat(timespec="seconds"),
+        "due": None,
+    }
+    store["tasks"].append(task)
+    save_store(store)
+    return task
 
 
 def load_active():
@@ -324,9 +374,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("X-Task-Web") != "1":
             self.send_error_json("Forbidden", 403)
             return
+        path = urlparse(self.path).path
+        if path == "/api/tasks":
+            self.add_task()
+            return
         match = re.fullmatch(
             r"/api/tasks/([0-9a-fA-F-]{36})/(start|stop|done|description)",
-            urlparse(self.path).path,
+            path,
         )
         if not match:
             self.send_error_json("Not found", 404)
@@ -338,7 +392,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Task not found", 404)
             return
         if action == "description":
-            description = self.read_description()
+            payload = self.read_json_body()
+            if payload is None:
+                return
+            description = self.validate_description(payload.get("description"))
             if description is None:
                 return
             task["description"] = description
@@ -362,21 +419,29 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_json({"ok": True})
 
-    def read_description(self):
+    def add_task(self):
+        payload = self.read_json_body()
+        if payload is None:
+            return
+        description = self.validate_description(payload.get("description"))
+        if description is None:
+            return
+        project = payload.get("project") or ""
+        if not isinstance(project, str):
+            self.send_error_json("Invalid project")
+            return
+        project = project.strip()
+        if len(project) > 100:
+            self.send_error_json("Project name is too long", 413)
+            return
         try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self.send_error_json("Invalid Content-Length")
-            return None
-        if content_length > 4096:
-            self.send_error_json("Description is too long", 413)
-            return None
-        try:
-            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            self.send_error_json("Invalid JSON")
-            return None
-        description = payload.get("description")
+            task = create_task(description, project)
+        except OSError as error:
+            self.send_error_json(f"Could not save tasks: {error}", 500)
+            return
+        self.send_json({"ok": True, "task": public_task(task)}, 201)
+
+    def validate_description(self, description):
         if not isinstance(description, str) or not description.strip():
             self.send_error_json("Description cannot be empty")
             return None
@@ -385,6 +450,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Description is too long", 413)
             return None
         return description
+
+    def read_json_body(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error_json("Invalid Content-Length")
+            return None
+        if content_length > 4096:
+            self.send_error_json("Request body is too large", 413)
+            return None
+        try:
+            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error_json("Invalid JSON")
+            return None
+        if not isinstance(payload, dict):
+            self.send_error_json("Invalid JSON")
+            return None
+        return payload
 
 
 def main():

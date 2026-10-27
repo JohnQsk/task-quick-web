@@ -7,6 +7,7 @@ This `main` branch is fully self-contained: tasks are stored in a JSON file and 
 ## Features
 
 - List open tasks
+- Add new tasks (with optional project)
 - Start and stop tasks from a browser
 - Mark tasks as done
 - Edit task descriptions
