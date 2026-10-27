@@ -394,7 +394,7 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
         "--data-dir",
-        default=str(Path.home() / ".taskweb"),
+        default=str(Path.home() / "workspace" / "taskweb"),
         help="folder for tasks.json, active.json and timelog.jsonl "
         "(file names are fixed)",
     )
