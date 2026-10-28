@@ -28,6 +28,9 @@ h1 { font-size: 26px; margin-bottom: 4px; }
 #add-form input { padding: 10px 14px; border: 1px solid #d0d4da; border-radius: 7px; font-size: 15px; }
 #new-description { flex: 3; }
 #new-project { flex: 1; }
+#toggle-completed { margin-bottom: 10px; background: #66707c; }
+#completed .task { opacity: .7; }
+#completed .description { text-decoration: line-through; }
 .task { display: flex; align-items: center; gap: 16px; padding: 18px; margin: 10px 0; background: white; border-radius: 10px; box-shadow: 0 1px 4px #0001; }
 .details { flex: 1; min-width: 0; }
 .description { overflow-wrap: anywhere; line-height: 1.45; }
@@ -53,6 +56,8 @@ button:disabled { opacity: .5; cursor: wait; }
 </form>
 <div id="error" role="alert"></div>
 <main id="tasks"></main>
+<button id="toggle-completed" type="button">Show completed</button>
+<section id="completed"></section>
 <script>
 const tasksNode = document.getElementById('tasks');
 const summaryNode = document.getElementById('summary');
@@ -61,6 +66,9 @@ const errorNode = document.getElementById('error');
 const addForm = document.getElementById('add-form');
 const newDescription = document.getElementById('new-description');
 const newProject = document.getElementById('new-project');
+const completedNode = document.getElementById('completed');
+const toggleCompleted = document.getElementById('toggle-completed');
+let showCompleted = false;
 
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -121,6 +129,39 @@ addForm.addEventListener('submit', async (event) => {
     errorNode.textContent = error.message;
   }
 });
+
+toggleCompleted.addEventListener('click', () => {
+  showCompleted = !showCompleted;
+  toggleCompleted.textContent = showCompleted ? 'Hide completed' : 'Show completed';
+  if (!showCompleted) completedNode.replaceChildren();
+  loadCompleted();
+});
+
+async function loadCompleted() {
+  if (!showCompleted) return;
+  try {
+    const tasks = await request('/api/tasks/completed');
+    completedNode.replaceChildren();
+    for (const task of tasks) {
+      const row = document.createElement('section');
+      row.className = 'task';
+      const details = document.createElement('div');
+      details.className = 'details';
+      const description = document.createElement('div');
+      description.className = 'description';
+      description.textContent = task.summary;
+      const meta = document.createElement('div');
+      meta.className = 'project';
+      meta.textContent = (task.project || 'Inbox') +
+        (task.completed ? ' - completed ' + task.completed.slice(0, 16).replace('T', ' ') : '');
+      details.append(description, meta);
+      row.append(details);
+      completedNode.append(row);
+    }
+  } catch (error) {
+    completedNode.replaceChildren();
+  }
+}
 
 async function loadFocus() {
   try {
@@ -183,6 +224,7 @@ async function loadTasks() {
     summaryNode.textContent = 'Could not load tasks';
   }
   loadFocus();
+  loadCompleted();
 }
 
 loadTasks();
@@ -211,13 +253,20 @@ def save_store(store):
 
 
 def public_task(task):
+    if task.get("status") == "completed":
+        status = "completed"
+    elif task.get("start"):
+        status = "active"
+    else:
+        status = "pending"
     return {
         "uuid": task["uuid"],
-        "status": "active" if task.get("start") else "pending",
+        "status": status,
         "summary": task["description"],
         "project": task.get("project", ""),
         "created": task.get("created"),
         "due": task.get("due"),
+        "completed": task.get("completed"),
     }
 
 
@@ -227,6 +276,16 @@ def open_tasks():
         for task in load_store()["tasks"]
         if task.get("status") == "pending"
     ]
+
+
+def completed_tasks():
+    tasks = [
+        public_task(task)
+        for task in load_store()["tasks"]
+        if task.get("status") == "completed"
+    ]
+    tasks.sort(key=lambda task: task.get("completed") or "", reverse=True)
+    return tasks
 
 
 def find_task(store, task_uuid):
@@ -357,6 +416,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(PAGE, "text/html; charset=utf-8")
         elif path == "/api/tasks":
             self.send_json(open_tasks())
+        elif path == "/api/tasks/completed":
+            self.send_json(completed_tasks())
         elif path == "/api/focus":
             active_uuids = {
                 task["uuid"]

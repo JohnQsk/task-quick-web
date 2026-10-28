@@ -10,6 +10,7 @@ This `main` branch is fully self-contained: tasks are stored in a JSON file and 
 - Add new tasks (with optional project)
 - Start and stop tasks from a browser
 - Mark tasks as done
+- View completed tasks (toggle button below the open list)
 - Edit task descriptions
 - Simple time tracking: starting/stopping a task logs the session to `~/.taskweb/timelog.jsonl`, and the page shows today's total focused time
 - Localhost-only access by default

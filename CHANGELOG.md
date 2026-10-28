@@ -5,6 +5,7 @@
 ### main (self-written backend)
 
 #### Added
+- View completed tasks: toggle button below the open list, served by `GET /api/tasks/completed`, newest first
 - Add new tasks from the web UI: description plus optional project, via `POST /api/tasks`
 - `--data-dir` server option (and `-DataDir` in `start-web.ps1`) to choose the storage folder; file names are fixed (`tasks.json`, `active.json`, `timelog.jsonl`)
 - Simple time tracking: start/stop sessions are logged to `timelog.jsonl`, and the page shows today's total focused time
