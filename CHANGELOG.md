@@ -5,6 +5,7 @@
 ### main (self-written backend)
 
 #### Added
+- Agent skill at `.agents/skills/task-web/SKILL.md`: teaches AI agents to manage tasks via the HTTP API (preferred) or by editing the JSON data files directly (fallback), including schema and write-discipline rules
 - View completed tasks: toggle button below the open list, served by `GET /api/tasks/completed`, newest first
 - Add new tasks from the web UI: description plus optional project, via `POST /api/tasks`
 - `--data-dir` server option (and `-DataDir` in `start-web.ps1`) to choose the storage folder; file names are fixed (`tasks.json`, `active.json`, `timelog.jsonl`)

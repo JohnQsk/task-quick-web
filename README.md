@@ -13,6 +13,7 @@ This `main` branch is fully self-contained: tasks are stored in a JSON file and 
 - View completed tasks (toggle button below the open list)
 - Edit task descriptions
 - Simple time tracking: starting/stopping a task logs the session to `~/.taskweb/timelog.jsonl`, and the page shows today's total focused time
+- Ships an agent skill (`.agents/skills/task-web/`) so AI agents can manage tasks through the HTTP API or the JSON files
 - Localhost-only access by default
 - No dependencies outside the Python standard library
 
