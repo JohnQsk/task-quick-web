@@ -1,4 +1,4 @@
-# dstask-quick-web
+# task-quick-web
 
 A tiny local web UI for [Taskwarrior](https://taskwarrior.org/), focused on the actions used most often: adding, starting, stopping, completing, and editing tasks.
 
