@@ -1,4 +1,4 @@
-# dstask-quick-web
+# task-quick-web
 
 A tiny local web UI for managing a personal task list, focused on the actions used most often: starting, stopping, completing, and editing task descriptions.
 
