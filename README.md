@@ -4,6 +4,8 @@ A tiny local web UI for [dstask](https://github.com/naggie/dstask), focused on t
 
 This `dstask` branch shells out to the `dstask` CLI for all task operations. Other branches: `main` is a self-contained pure-Python variant, `taskwarrior` uses Taskwarrior/Timewarrior via WSL.
 
+![screenshot](assets/screenshot.png)
+
 ## Features
 
 - List open tasks
