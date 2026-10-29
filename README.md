@@ -35,9 +35,10 @@ The page opens at <http://127.0.0.1:8765>.
 
 ## Known limitations
 
+- Time is recorded only for start/stop/done actions clicked in the web UI. Running `dstask start`/`stop` from the CLI is not tracked — dstask has no hook mechanism like Timewarrior's. If timing matters, use the web buttons.
+- Time-tracking files (`~/.dstask-web/timelog.jsonl` and `active.json`) are not part of dstask's git repository, so `dstask sync` does not carry them to other devices. Task data syncs; focus logs do not.
 - dstask parses tokens like `project:x`, `+tag` and `P0` anywhere in a task summary, so avoid those patterns in descriptions entered via the Add form.
 - `dstask modify` cannot change a task summary, so description edits are applied by rewriting the task file and committing via `dstask git`.
-- Time tracking is done by the server itself; dstask has no equivalent of the Timewarrior hook.
 
 ## Security
 
