@@ -53,6 +53,20 @@ For non-default WSL distributions or users:
 
 The page opens at <http://127.0.0.1:8765>.
 
+## CLI and agent access
+
+The server is stateless — all task data lives in Taskwarrior and Timewarrior, so anything (a shell, a script, or an AI agent) can read and write the same data through the CLI while the web UI is running. Changes show up in the web UI on the next manual Refresh.
+
+Examples (from Windows):
+
+```powershell
+wsl -d Ubuntu -- task status:pending export   # read open tasks as JSON
+wsl -d Ubuntu -- task add "write report" project:work
+wsl -d Ubuntu -- task <uuid> start            # also starts Timewarrior via the hook
+wsl -d Ubuntu -- task <uuid> done
+wsl -d Ubuntu -- timew export :today          # today's focus intervals as JSON
+```
+
 ## Security
 
 This UI has no authentication system. Keep it bound to `127.0.0.1`, and do not expose the port to a LAN or the public internet.
