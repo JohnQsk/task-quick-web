@@ -26,6 +26,7 @@ h1 { font-size: 26px; margin-bottom: 4px; }
 #summary, #focus { color: #66707c; margin-bottom: 6px; }
 #focus { margin-bottom: 16px; }
 #refresh { margin-bottom: 20px; background: #66707c; }
+#sync { margin-bottom: 20px; }
 #add-form { display: flex; gap: 8px; margin-bottom: 20px; }
 #add-form input { padding: 10px 14px; border: 1px solid #d0d4da; border-radius: 7px; font-size: 15px; }
 #new-description { flex: 3; }
@@ -52,6 +53,7 @@ button:disabled { opacity: .5; cursor: wait; }
 <div id="summary">Loading...</div>
 <div id="focus"></div>
 <button id="refresh" type="button">Refresh</button>
+<button id="sync" type="button">Sync</button>
 <form id="add-form">
 <input id="new-description" placeholder="New task description" maxlength="1000" required>
 <input id="new-project" placeholder="project (optional)" maxlength="100">
@@ -72,6 +74,19 @@ const newProject = document.getElementById('new-project');
 const completedNode = document.getElementById('completed');
 const toggleCompleted = document.getElementById('toggle-completed');
 document.getElementById('refresh').addEventListener('click', loadTasks);
+const syncButton = document.getElementById('sync');
+syncButton.addEventListener('click', async () => {
+  syncButton.disabled = true;
+  errorNode.textContent = '';
+  try {
+    await request('/api/sync', {method: 'POST', headers: {'X-Task-Web': '1'}});
+    await loadTasks();
+  } catch (error) {
+    errorNode.textContent = error.message;
+  } finally {
+    syncButton.disabled = false;
+  }
+});
 let showCompleted = false;
 
 async function request(url, options) {
@@ -484,6 +499,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Forbidden", 403)
             return
         path = urlparse(self.path).path
+        if path == "/api/sync":
+            try:
+                result = run_dstask("sync")
+            except Exception as error:
+                self.send_error_json(str(error), 500)
+                return
+            output = clean_output(result)
+            if result.returncode != 0:
+                self.send_error_json(output or "Sync failed")
+                return
+            self.send_json({"ok": True, "message": output})
+            return
         if path == "/api/tasks":
             payload = self.read_json_body()
             if payload is None:

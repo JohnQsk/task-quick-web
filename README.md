@@ -14,6 +14,7 @@ This `dstask` branch shells out to the `dstask` CLI for all task operations. Oth
 - Edit task descriptions
 - Simple time tracking: starting/stopping a task logs the session to `~/.dstask-web/timelog.jsonl`, and the page shows today's total focused time
 - Manual refresh (Refresh button, no polling)
+- Sync button: runs `dstask sync` (git pull + push to the configured remote) and reloads the list
 - Localhost-only access by default
 - No Python dependencies outside the standard library
 
