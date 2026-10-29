@@ -1,4 +1,4 @@
-# dstask-quick-web
+# task-quick-web
 
 A tiny local web UI for [dstask](https://github.com/naggie/dstask), focused on the actions used most often: starting, stopping, completing, and editing task descriptions.
 
