@@ -1,15 +1,16 @@
 [CmdletBinding()]
 param(
     [int]$Port = 8765,
-    [string]$DataDir = ""
+    [string]$Distro = "Ubuntu",
+    [string]$WslUser = ""
 )
 
 $ErrorActionPreference = "Stop"
 $ServerPath = Join-Path $PSScriptRoot "web\server.py"
 
-$Arguments = @("`"$ServerPath`"", "--port", "$Port")
-if ($DataDir) {
-    $Arguments += @("--data-dir", "`"$DataDir`"")
+$Arguments = @("`"$ServerPath`"", "--port", "$Port", "--distro", $Distro)
+if ($WslUser) {
+    $Arguments += @("--wsl-user", $WslUser)
 }
 
 Start-Process python.exe -ArgumentList $Arguments -WindowStyle Minimized

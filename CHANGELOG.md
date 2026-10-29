@@ -15,6 +15,12 @@
 - Backend no longer shells out to any external task CLI: tasks are stored in a JSON file, pure Python standard library, no WSL required
 - Default data directory is `~/workspace/taskweb` so the enclosing git repository can be used for backup/sync
 
+### taskwarrior (branch)
+
+- Variant backed by the Taskwarrior 2.x CLI: the server runs natively on Windows and invokes `wsl.exe` for each `task`/`timew` command; same UI as `main` — list, add, start/stop, done, completed view, description editing
+- Focus time comes from Timewarrior (`timew export :today`); the `on-modify.timewarrior` hook ties start/stop to time tracking
+- Today-total calculation clips intervals crossing midnight to the local day start
+
 ### dstask (branch)
 
 - Variant backed by the [dstask](https://github.com/naggie/dstask) CLI (native Windows binary), kept for reference on the `dstask` branch

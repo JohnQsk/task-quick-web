@@ -1,23 +1,18 @@
 import argparse
 import json
 import re
-import uuid
-from datetime import datetime
+import subprocess
+import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 from urllib.parse import urlparse
-
-STORE_DIR = Path.home() / "workspace" / "taskweb"
-TASKS_FILE = STORE_DIR / "tasks.json"
-TIMELOG = STORE_DIR / "timelog.jsonl"
-ACTIVE_FILE = STORE_DIR / "active.json"
 
 PAGE = b'''<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tasks</title>
+<title>Taskwarrior</title>
 <style>
 :root { color-scheme: light; font-family: system-ui, sans-serif; }
 body { max-width: 860px; margin: 40px auto; padding: 0 16px; background: #f5f6f8; color: #20242a; }
@@ -46,7 +41,7 @@ button:disabled { opacity: .5; cursor: wait; }
 </style>
 </head>
 <body>
-<h1>Tasks</h1>
+<h1>Taskwarrior</h1>
 <div id="summary">Loading...</div>
 <div id="focus"></div>
 <form id="add-form">
@@ -234,22 +229,46 @@ setInterval(loadTasks, 15000);
 </html>'''
 
 
-def now_local():
-    return datetime.now().astimezone()
+WSL_PREFIX = ["wsl.exe"]
 
 
-def load_store():
+def run_wsl(*args):
     try:
-        return json.loads(TASKS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"tasks": []}
+        return subprocess.run(
+            [*WSL_PREFIX, *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("wsl.exe not found")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("command timed out")
 
 
-def save_store(store):
-    STORE_DIR.mkdir(exist_ok=True)
-    temp = STORE_DIR / "tasks.json.tmp"
-    temp.write_text(json.dumps(store, ensure_ascii=False, indent=1), encoding="utf-8")
-    temp.replace(TASKS_FILE)
+def run_task(*args):
+    return run_wsl("task", *args)
+
+
+def export_tasks(*filters):
+    result = run_task(*filters, "export")
+    if result.returncode != 0:
+        output = result.stdout + result.stderr
+        if "No matches" in output:
+            return []
+        raise RuntimeError(output.strip() or "Could not read tasks")
+    return json.loads(result.stdout or "[]")
+
+
+def iso_local(taskwarrior_time):
+    if not taskwarrior_time:
+        return None
+    moment = datetime.strptime(taskwarrior_time, "%Y%m%dT%H%M%SZ").replace(
+        tzinfo=timezone.utc
+    )
+    return moment.astimezone().isoformat(timespec="seconds")
 
 
 def public_task(task):
@@ -264,133 +283,89 @@ def public_task(task):
         "status": status,
         "summary": task["description"],
         "project": task.get("project", ""),
-        "created": task.get("created"),
-        "due": task.get("due"),
-        "completed": task.get("completed"),
+        "created": iso_local(task.get("entry")),
+        "due": iso_local(task.get("due")),
+        "completed": iso_local(task.get("end"))
+        if task.get("status") == "completed"
+        else None,
     }
 
 
 def open_tasks():
-    return [
-        public_task(task)
-        for task in load_store()["tasks"]
-        if task.get("status") == "pending"
-    ]
+    return [public_task(task) for task in export_tasks("status:pending")]
 
 
 def completed_tasks():
     tasks = [
-        public_task(task)
-        for task in load_store()["tasks"]
-        if task.get("status") == "completed"
+        public_task(task) for task in export_tasks("status:completed")
     ]
     tasks.sort(key=lambda task: task.get("completed") or "", reverse=True)
-    return tasks
+    return tasks[:100]
 
 
-def find_task(store, task_uuid):
-    for task in store["tasks"]:
-        if task.get("uuid") == task_uuid and task.get("status") == "pending":
-            return task
-    return None
+def add_task(description, project):
+    command = ["add"]
+    if project:
+        command.append(f"project:{project}")
+    command.append(description)
+    result = run_task(*command)
+    if result.returncode != 0:
+        raise RuntimeError((result.stdout + result.stderr).strip() or "Add failed")
+    latest = export_tasks("+LATEST")
+    if not latest:
+        raise RuntimeError("Could not find the new task")
+    return latest[0]
 
 
-def create_task(description, project):
-    store = load_store()
-    task = {
-        "uuid": str(uuid.uuid4()),
-        "description": description,
-        "project": project,
-        "tags": [],
-        "status": "pending",
-        "start": None,
-        "created": now_local().isoformat(timespec="seconds"),
-        "due": None,
-    }
-    store["tasks"].append(task)
-    save_store(store)
-    return task
-
-
-def load_active():
+def focus_seconds_today():
     try:
-        return json.loads(ACTIVE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def save_active(active):
-    STORE_DIR.mkdir(exist_ok=True)
-    ACTIVE_FILE.write_text(
-        json.dumps(active, ensure_ascii=False, indent=1), encoding="utf-8"
-    )
-
-
-def track_start(task):
+        result = run_wsl("timew", "export", ":today")
+    except RuntimeError:
+        return 0
+    if result.returncode != 0:
+        return 0
     try:
-        active = load_active()
-        active[task["uuid"]] = {
-            "summary": task["description"],
-            "project": task.get("project", ""),
-            "start": task["start"],
-        }
-        save_active(active)
-    except OSError:
-        pass
-
-
-def track_stop(task, started_at):
-    try:
-        active = load_active()
-        entry = active.pop(task["uuid"], None)
-        save_active(active)
-        start_text = entry["start"] if entry else started_at
-        if not start_text:
-            return
-        end = now_local()
-        start = datetime.fromisoformat(start_text)
-        record = {
-            "uuid": task["uuid"],
-            "summary": task["description"],
-            "project": task.get("project", ""),
-            "start": start_text,
-            "end": end.isoformat(timespec="seconds"),
-            "seconds": max(0, round((end - start).total_seconds())),
-        }
-        STORE_DIR.mkdir(exist_ok=True)
-        with TIMELOG.open("a", encoding="utf-8") as log:
-            log.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except (OSError, ValueError, KeyError):
-        pass
-
-
-def focus_seconds_today(active_uuids):
-    today = now_local().date()
+        intervals = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return 0
     total = 0
-    try:
-        with TIMELOG.open(encoding="utf-8") as log:
-            for line in log:
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                try:
-                    if datetime.fromisoformat(record["end"]).date() == today:
-                        total += record.get("seconds", 0)
-                except (KeyError, ValueError):
-                    continue
-    except OSError:
-        pass
-    now = now_local()
-    for task_uuid, entry in load_active().items():
-        if task_uuid not in active_uuids:
-            continue
+    now = datetime.now(timezone.utc)
+    midnight = (
+        now.astimezone()
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+    )
+    for interval in intervals:
         try:
-            start = datetime.fromisoformat(entry["start"])
+            start = datetime.strptime(interval["start"], "%Y%m%dT%H%M%SZ").replace(
+                tzinfo=timezone.utc
+            )
+            start = max(start, midnight)
+            if interval.get("end"):
+                end = datetime.strptime(interval["end"], "%Y%m%dT%H%M%SZ").replace(
+                    tzinfo=timezone.utc
+                )
+            else:
+                end = now
         except (KeyError, ValueError):
             continue
-        total += max(0, round((now - start).total_seconds()))
+        total += max(0, round((end - start).total_seconds()))
     return total
+
+
+def wait_for_hook(task_id):
+    details_result = run_task(task_id, "export")
+    try:
+        details = json.loads(details_result.stdout or "[]")
+    except json.JSONDecodeError:
+        return
+    if details and details[0].get("start"):
+        started_at = datetime.strptime(
+            details[0]["start"], "%Y%m%dT%H%M%SZ"
+        ).replace(tzinfo=timezone.utc)
+        delay = 1.1 - (datetime.now(timezone.utc) - started_at).total_seconds()
+        if delay > 0:
+            time.sleep(delay)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -415,16 +390,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self.send_bytes(PAGE, "text/html; charset=utf-8")
         elif path == "/api/tasks":
-            self.send_json(open_tasks())
+            try:
+                self.send_json(open_tasks())
+            except Exception as error:
+                self.send_error_json(str(error), 500)
         elif path == "/api/tasks/completed":
-            self.send_json(completed_tasks())
+            try:
+                self.send_json(completed_tasks())
+            except Exception as error:
+                self.send_error_json(str(error), 500)
         elif path == "/api/focus":
-            active_uuids = {
-                task["uuid"]
-                for task in load_store()["tasks"]
-                if task.get("status") == "pending" and task.get("start")
-            }
-            self.send_json({"today_seconds": focus_seconds_today(active_uuids)})
+            try:
+                self.send_json({"today_seconds": focus_seconds_today()})
+            except Exception as error:
+                self.send_error_json(str(error), 500)
         elif path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -437,7 +416,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path == "/api/tasks":
-            self.add_task()
+            payload = self.read_json_body()
+            if payload is None:
+                return
+            description = self.validate_description(payload.get("description"))
+            if description is None:
+                return
+            project = payload.get("project") or ""
+            if not isinstance(project, str):
+                self.send_error_json("Invalid project")
+                return
+            project = project.strip()
+            if len(project) > 100:
+                self.send_error_json("Project name is too long", 413)
+                return
+            try:
+                task = add_task(description, project)
+            except Exception as error:
+                self.send_error_json(str(error), 500)
+                return
+            self.send_json({"ok": True, "task": public_task(task)}, 201)
             return
         match = re.fullmatch(
             r"/api/tasks/([0-9a-fA-F-]{36})/(start|stop|done|description)",
@@ -446,12 +444,7 @@ class Handler(BaseHTTPRequestHandler):
         if not match:
             self.send_error_json("Not found", 404)
             return
-        task_uuid, action = match.groups()
-        store = load_store()
-        task = find_task(store, task_uuid.lower())
-        if not task:
-            self.send_error_json("Task not found", 404)
-            return
+        task_id, action = match.groups()
         if action == "description":
             payload = self.read_json_body()
             if payload is None:
@@ -459,48 +452,21 @@ class Handler(BaseHTTPRequestHandler):
             description = self.validate_description(payload.get("description"))
             if description is None:
                 return
-            task["description"] = description
-        elif action == "start":
-            task["start"] = task.get("start") or now_local().isoformat(timespec="seconds")
-            track_start(task)
-        elif action == "stop":
-            started_at = task.get("start")
-            task["start"] = None
-            track_stop(task, started_at)
-        elif action == "done":
-            started_at = task.get("start")
-            task["start"] = None
-            task["status"] = "completed"
-            task["completed"] = now_local().isoformat(timespec="seconds")
-            track_stop(task, started_at)
+            command = ["rc.confirmation=no", task_id, "modify", f"description:{description}"]
+        else:
+            command = ["rc.confirmation=no", task_id, action]
+            if action in ("stop", "done"):
+                wait_for_hook(task_id)
         try:
-            save_store(store)
-        except OSError as error:
-            self.send_error_json(f"Could not save tasks: {error}", 500)
+            result = run_task(*command)
+        except Exception as error:
+            self.send_error_json(str(error), 500)
             return
-        self.send_json({"ok": True})
-
-    def add_task(self):
-        payload = self.read_json_body()
-        if payload is None:
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            self.send_error_json(output or "Task command failed")
             return
-        description = self.validate_description(payload.get("description"))
-        if description is None:
-            return
-        project = payload.get("project") or ""
-        if not isinstance(project, str):
-            self.send_error_json("Invalid project")
-            return
-        project = project.strip()
-        if len(project) > 100:
-            self.send_error_json("Project name is too long", 413)
-            return
-        try:
-            task = create_task(description, project)
-        except OSError as error:
-            self.send_error_json(f"Could not save tasks: {error}", 500)
-            return
-        self.send_json({"ok": True, "task": public_task(task)}, 201)
+        self.send_json({"ok": True, "message": output})
 
     def validate_description(self, description):
         if not isinstance(description, str) or not description.strip():
@@ -533,24 +499,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global STORE_DIR, TASKS_FILE, TIMELOG, ACTIVE_FILE
+    global WSL_PREFIX
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument(
-        "--data-dir",
-        default=str(Path.home() / "workspace" / "taskweb"),
-        help="folder for tasks.json, active.json and timelog.jsonl "
-        "(file names are fixed)",
-    )
+    parser.add_argument("--distro", default="Ubuntu", help="WSL distribution name")
+    parser.add_argument("--wsl-user", default="", help="WSL user (default user if empty)")
     args = parser.parse_args()
-    STORE_DIR = Path(args.data_dir).expanduser()
-    TASKS_FILE = STORE_DIR / "tasks.json"
-    TIMELOG = STORE_DIR / "timelog.jsonl"
-    ACTIVE_FILE = STORE_DIR / "active.json"
-    STORE_DIR.mkdir(parents=True, exist_ok=True)
+    WSL_PREFIX = ["wsl.exe", "-d", args.distro]
+    if args.wsl_user:
+        WSL_PREFIX += ["-u", args.wsl_user]
+    WSL_PREFIX.append("--")
     server = HTTPServer((args.host, args.port), Handler)
-    print(f"Task web: http://{args.host}:{args.port} (data: {STORE_DIR})", flush=True)
+    print(f"Taskwarrior web: http://{args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

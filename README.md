@@ -1,8 +1,8 @@
 # dstask-quick-web
 
-A tiny local web UI for managing a personal task list, focused on the actions used most often: starting, stopping, completing, and editing task descriptions.
+A tiny local web UI for [Taskwarrior](https://taskwarrior.org/), focused on the actions used most often: adding, starting, stopping, completing, and editing tasks.
 
-This `main` branch is fully self-contained: tasks are stored in a JSON file and the server is pure Python standard library. See the `dstask` branch for a variant backed by the [dstask](https://github.com/naggie/dstask) CLI.
+This `taskwarrior` branch shells out to the `task` CLI for all task operations and reads [Timewarrior](https://timewarrior.net/) data for focus time. Other branches: `main` is a self-contained pure-Python variant, `dstask` uses the dstask CLI.
 
 ## Features
 
@@ -12,29 +12,46 @@ This `main` branch is fully self-contained: tasks are stored in a JSON file and 
 - Mark tasks as done
 - View completed tasks (toggle button below the open list)
 - Edit task descriptions
-- Simple time tracking: starting/stopping a task logs the session to `~/.taskweb/timelog.jsonl`, and the page shows today's total focused time
+- Today's focused time, computed from Timewarrior intervals (`timew export :today`)
 - Localhost-only access by default
-- No dependencies outside the Python standard library
+- No Python dependencies outside the standard library
 
 ## Requirements
 
-- Python 3 (Windows)
+- Python 3
+- Taskwarrior 2.x
+- Timewarrior (optional, for the focus-time display)
+- WSL on Windows (Taskwarrior and Timewarrior have no native Windows build)
 
-## Quick start
+## Quick start on Windows
+
+Install Taskwarrior in WSL:
+
+```powershell
+wsl.exe -d Ubuntu -u root -- apt-get install -y taskwarrior
+```
+
+Install Timewarrior and its Taskwarrior hook if you want automatic time tracking on start/stop:
+
+```powershell
+wsl.exe -d Ubuntu -u root -- apt-get install -y timewarrior
+```
+
+Copy `on-modify.timewarrior` into the `hooks` directory below your configured Taskwarrior `data.location`, then make it executable.
+
+Start the web UI from this repository. The server itself runs natively on Windows and only shells into WSL for each `task`/`timew` command, so the WSL VM can idle and release memory whenever the page is closed:
 
 ```powershell
 .\start-web.ps1
 ```
 
+For non-default WSL distributions or users:
+
+```powershell
+.\start-web.ps1 -Distro Ubuntu -WslUser yourname
+```
+
 The page opens at <http://127.0.0.1:8765>.
-
-## Data storage
-
-All data lives under `~/workspace/taskweb/` by default, so the enclosing `workspace` git repository doubles as a backup/sync tool. Use `--data-dir` (or `.\start-web.ps1 -DataDir <folder>`) to choose a different folder; file names are fixed:
-
-- `tasks.json` — the task list (open and completed tasks)
-- `active.json` — start timestamps of currently running tasks
-- `timelog.jsonl` — one JSON record per finished focus session
 
 ## Security
 
@@ -42,4 +59,4 @@ This UI has no authentication system. Keep it bound to `127.0.0.1`, and do not e
 
 ## Current scope
 
-This is an early personal prototype. It intentionally supports only open-task display, start/stop, marking done, description editing, and basic time tracking. A license will be selected before the repository is made public.
+This is an early personal prototype. It intentionally supports only open/completed task display, add, start/stop, marking done, description editing, and a focus-time summary. A license will be selected before the repository is made public.
