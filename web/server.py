@@ -18,7 +18,8 @@ PAGE = b'''<!doctype html>
 body { max-width: 860px; margin: 40px auto; padding: 0 16px; background: #f5f6f8; color: #20242a; }
 h1 { font-size: 26px; margin-bottom: 4px; }
 #summary, #focus { color: #66707c; margin-bottom: 6px; }
-#focus { margin-bottom: 24px; }
+#focus { margin-bottom: 16px; }
+#refresh { margin-bottom: 20px; background: #66707c; }
 #add-form { display: flex; gap: 8px; margin-bottom: 20px; }
 #add-form input { padding: 10px 14px; border: 1px solid #d0d4da; border-radius: 7px; font-size: 15px; }
 #new-description { flex: 3; }
@@ -44,6 +45,7 @@ button:disabled { opacity: .5; cursor: wait; }
 <h1>Taskwarrior</h1>
 <div id="summary">Loading...</div>
 <div id="focus"></div>
+<button id="refresh" type="button">Refresh</button>
 <form id="add-form">
 <input id="new-description" placeholder="New task description" maxlength="1000" required>
 <input id="new-project" placeholder="project (optional)" maxlength="100">
@@ -63,6 +65,7 @@ const newDescription = document.getElementById('new-description');
 const newProject = document.getElementById('new-project');
 const completedNode = document.getElementById('completed');
 const toggleCompleted = document.getElementById('toggle-completed');
+document.getElementById('refresh').addEventListener('click', loadTasks);
 let showCompleted = false;
 
 async function request(url, options) {
@@ -223,7 +226,6 @@ async function loadTasks() {
 }
 
 loadTasks();
-setInterval(loadTasks, 15000);
 </script>
 </body>
 </html>'''

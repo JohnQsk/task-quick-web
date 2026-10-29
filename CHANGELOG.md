@@ -20,6 +20,7 @@
 - Variant backed by the Taskwarrior 2.x CLI: the server runs natively on Windows and invokes `wsl.exe` for each `task`/`timew` command; same UI as `main` — list, add, start/stop, done, completed view, description editing
 - Focus time comes from Timewarrior (`timew export :today`); the `on-modify.timewarrior` hook ties start/stop to time tracking
 - Today-total calculation clips intervals crossing midnight to the local day start
+- Manual refresh only (Refresh button, no polling) so the WSL VM can idle and free memory while the page is open
 
 ### dstask (branch)
 
