@@ -46,4 +46,4 @@ This UI has no authentication system. Keep it bound to `127.0.0.1`, and do not e
 
 ## Current scope
 
-This is an early personal prototype. It intentionally supports only open/completed task display, add, start/stop, marking done, description editing, and basic time tracking. A license will be selected before the repository is made public.
+This is an early personal prototype. It intentionally supports only open/completed task display, add, start/stop, marking done, description editing, and basic time tracking. Released under the MIT license.
