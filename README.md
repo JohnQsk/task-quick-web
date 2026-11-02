@@ -1,5 +1,7 @@
 # task-quick-web
 
+> **Superseded by [intent-log](https://github.com/JohnQsk/intent-log).** This project is archived and read-only: intent-log keeps this task page, adds the 20-minute cycle timer and the feedback log, and no longer writes the old timelog.
+
 A tiny local web UI for [dstask](https://github.com/naggie/dstask), focused on the actions used most often: adding, starting, stopping, completing, and editing tasks.
 
 This `dstask` branch shells out to the `dstask` CLI for all task operations. Other branches: `main` is a self-contained pure-Python variant, `taskwarrior` uses Taskwarrior/Timewarrior via WSL.
