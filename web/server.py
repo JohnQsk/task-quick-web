@@ -97,13 +97,23 @@ async function request(url, options) {
 }
 
 async function changeTask(uuid, action, button) {
+  let feedback;
+  if (action === 'done') {
+    feedback = window.prompt('Completion feedback (optional)', '');
+    if (feedback === null) return;
+  }
   button.disabled = true;
   errorNode.textContent = '';
   try {
-    await request('/api/tasks/' + uuid + '/' + action, {
+    const options = {
       method: 'POST',
       headers: {'X-Task-Web': '1'}
-    });
+    };
+    if (action === 'done') {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify({feedback: feedback});
+    }
+    await request('/api/tasks/' + uuid + '/' + action, options);
     await loadTasks();
   } catch (error) {
     errorNode.textContent = error.message;
@@ -556,7 +566,23 @@ class Handler(BaseHTTPRequestHandler):
                 edit_summary(task, description)
                 self.send_json({"ok": True})
                 return
-            result = run_dstask(action, str(task["id"]), "--")
+            command = [action, str(task["id"])]
+            if action == "done":
+                payload = self.read_json_body()
+                if payload is None:
+                    return
+                feedback = payload.get("feedback", "")
+                if not isinstance(feedback, str):
+                    self.send_error_json("Invalid feedback")
+                    return
+                feedback = feedback.strip()
+                if len(feedback) > 1000:
+                    self.send_error_json("Feedback is too long", 413)
+                    return
+                if feedback:
+                    command.append(feedback)
+            command.append("--")
+            result = run_dstask(*command)
             if result.returncode != 0:
                 self.send_error_json(clean_output(result) or "Task command failed")
                 return
