@@ -1,5 +1,7 @@
 # task-quick-web
 
+> **Superseded by [intent-log](https://github.com/JohnQsk/intent-log).** This project is archived and read-only: intent-log keeps the task page, adds the 20-minute cycle timer and the feedback log, and no longer writes the old timelog.
+
 A tiny local web UI for managing a personal task list, focused on the actions used most often: starting, stopping, completing, and editing task descriptions.
 
 This `main` branch is fully self-contained: tasks are stored in a JSON file and the server is pure Python standard library. See the `dstask` branch for a variant backed by the [dstask](https://github.com/naggie/dstask) CLI.
